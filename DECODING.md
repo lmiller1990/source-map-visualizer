@@ -63,5 +63,14 @@ What we are dealing with are base 64 encoded VLQs. According to the standard:
 
 > The VLQ is a Base64 value, where the most significant bit (the 6th bit) is used as the continuation bit, and the “digits” are encoded into the string least significant first, and where the least significant bit of the first digit is used as the sign bit.
 
+Decoding `A` is quite easy, since it is listed in the [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) table - it's 0. We can be a bit more thorough in our decoding using the above definition for a VLQ.
 
+A is 0, or in binary, 000000. As stated above, the most significant bit (the 6th bit) is used as the continuation bit. In this case the most significant bit (the value on the far left) is 0. This means there is no continuation needed - the number fits into five bits. For larger numbers, this is not the case. We will see an example soon.
 
+It also says the least significant bit of the first digit is used as the sign bit. The least significant bit (the value on the far right) is also 0.
+
+## Encoding Negative Numbers
+
+Let's see an example of a negative number. `J` is VLQ for -4. Looking at the Base 64 table again, we can see `J` is 9, or `001001` in binary. The most significant bit is 0 - so we know the entire number fits within 5 bits. The least significant bit is 1 - that means it's a negative number. We are left with `100`, which is 4 in decimal. The final decoded value is -4.
+
+## The Continuation Bit
