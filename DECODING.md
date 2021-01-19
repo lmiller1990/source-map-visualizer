@@ -51,7 +51,7 @@ The main thing we are interested in is `mappings`: `"AAAA,IAAM,KAAK,GAAG,UAAC,IA
 
 These letters are variable length quantity - a very concise way of encoding large numbers. To hint at where this is all leading, if you decode `AAAA`, you get an array of numbers: `[0, 0, 0, 0]`. `IAAM` gives us `[4, 0, 0, 6]`. The next article will go in depth on what each of these numbers means, but basically they map a row and column in the compiled JavaScript to the original TypeScript:
 
-source-maps-1
+![./source-maps-diagram.png]
 
 This brings us to the goal of this post: decoding the VLQs to arrays of numbers.
 
