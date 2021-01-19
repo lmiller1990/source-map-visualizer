@@ -94,5 +94,5 @@ function encodeInteger(num){
 
 
 console.log(
-encodeInteger(-4)
+encodeInteger(1405)
 )
