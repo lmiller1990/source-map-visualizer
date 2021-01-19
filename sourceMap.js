@@ -18,8 +18,10 @@ function decode(string, acc = 0, depth = 0, decoded = []) {
   const hasContinuationBit = integer & 32
   const withoutContBit = integer & 31
 
-  const suffix = (withoutContBit << (5 * depth))
+  console.log('withoutContBit', withoutContBit)
+  const suffix = withoutContBit + (31 * depth)// (withoutContBit << (5 * depth))
   const value = acc | suffix
+  console.log('value', value)
 
   if (hasContinuationBit) {
     return decode(rest.join(''), value, depth + 1, decoded)
@@ -31,6 +33,6 @@ function decode(string, acc = 0, depth = 0, decoded = []) {
 }
 
 console.log(
-  decode('4NAAoO') // => [119, -3]
+  decode('yB') // => [119, -3]
 )
 

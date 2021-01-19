@@ -92,3 +92,7 @@ function encodeInteger(num){
   return result;
 }
 
+
+console.log(
+encodeInteger(1405)
+)
