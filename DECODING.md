@@ -1,6 +1,6 @@
 ## Decoding Variable Length Quantity for Source Maps
 
-This is the first article in a series on source maps. We will be building an app to show the mapping between some TypeScript code and the compiled JavaScript using source maps. In order to understand exactly how everything works, instead of using libraries like [`source-map`](https://www.npmjs.com/package/source-map) or [`vlq`](https://www.npmjs.com/package/vlq), we will write our own decoded and parser from scratch!
+This is the first article in a series on source maps. We will be building an app to show the mapping between some TypeScript code and the compiled JavaScript using source maps. In order to understand exactly how everything works, instead of using libraries like [`source-map`](https://www.npmjs.com/package/source-map) or [`vlq`](https://www.npmjs.com/package/vlq), we will write our own decoder and parser from scratch!
 
 The main resources I used when learning about source maps were:
 
@@ -30,7 +30,7 @@ var greet = function (name) {
 //# sourceMappingURL=greet.js.map
 ```
 
-and the source map (`greet.js.map`):
+...and the source map (`greet.js.map`):
 
 ```js
 {
@@ -45,9 +45,9 @@ and the source map (`greet.js.map`):
 }
 ```
 
-The main thing we are interested in is `mappings`: `"AAAA,IAAM,KAAK,GAAG,UAAC,IAAY;IACzB,OAAO,WAAS,IAAM,CAAA;AACxB,CAAC,CAAA"`. This incredibly compat jumble of letters tells us that `var` in `greet.js` corresponds to `const` in `greet.ts`, as well as how the rest of it maps up... if we can decode it. 
+The main thing we are interested in is `mappings`: `"AAAA,IAAM,KAAK,GAAG,UAAC,IAAY;IACzB,OAAO,WAAS,IAAM,CAAA;AACxB,CAAC,CAAA"`. This incredibly compact jumble of letters tells us that `var` in `greet.js` corresponds to `const` in `greet.ts`, as well as how the rest of it maps up... if we can decode it. 
 
-## Varible Length Quantity
+## Variable Length Quantity
 
 These letters are variable length quantity - a very concise way of encoding large numbers. To hint at where this is all leading, if you decode `AAAA`, you get an array of numbers: `[0, 0, 0, 0]`. `IAAM` gives us `[4, 0, 0, 6]`. The next article will go in depth on what each of these numbers means, but basically they map a row and column in the compiled JavaScript to the original TypeScript:
 
@@ -65,22 +65,24 @@ What we are dealing with are base 64 encoded VLQs. According to the standard:
 
 Decoding `A` is quite easy, since it is listed in the [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) table - it's 0. We can be a bit more thorough in our decoding using the above definition for a VLQ.
 
-A is 0, or in binary, 000000. As stated above, the most significant bit (the 6th bit) is used as the continuation bit. In this case the most significant bit (the value on the far left) is 0. This means there is no continuation needed - the number fits into five bits. For larger numbers, this is not the case. We will see an example soon.
+A is 0, or in binary, `000000`. As stated above, the most significant bit (the 6th bit) is used as the continuation bit. In this case the most significant bit (the value on the far left) is 0. This means there is no continuation needed - the number fits into five bits. For larger numbers, this is not the case. We will see an example soon.
 
 It also says the least significant bit of the first digit is used as the sign bit. The least significant bit (the value on the far right) is also 0.
 
 ## Encoding Negative Numbers
 
-Let's see an example of a negative number. `J` is VLQ for -4. Looking at the Base 64 table again, we can see `J` is 9, or `001001` in binary. The most significant bit is 0 - so we know the entire number fits within 5 bits. The least significant bit is 1 - that means it's a negative number. We are left with `100`, which is 4 in decimal. The final decoded value is -4.
+Let's see an example of a negative number. `J` is VLQ for -4. Looking at the [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) table again, we can see `J` is 9, or `001001` in binary. The most significant bit is 0 - so we know the entire number fits within 5 bits. The least significant bit is 1 - that means it's a negative number. We are left with `100`, which is 4 in decimal. The final decoded value is -4.
 
 ## The Continuation Bit
 
-The final example we need to cover is an encoded VLQ that uses a continuation bit. `yB` decodes to 25. Let's walk through it. Looking at the Base 64 table, we can see `y` is 50 in decimal, or `110010` in binary. The most significant bit is a 1 - this means the number requires more than 5 bits to encode. Truncating the leading 1, we are left with `10010`. `10010` is 19 in decimal.
+The final example we need to cover is an encoded VLQ that uses a continuation bit. `yB` decodes to 25. Let's walk through it. Looking at the [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) table, we can see `y` is 50 in decimal, or `110010` in binary. The most significant bit is a 1 - this means the number requires more than 5 bits to encode. Truncating the leading 1, we are left with `10010`. `10010` is 19 in decimal.
 
 ```
-+---+---+---+---+---+
-| 1 | 0 | 0 | 1 | 0 |
-+---+---+---+---+---+
++-----------------------+
+|          19           |
++---+---+---+---+---+---+
+| X | 1 | 0 | 0 | 1 | 0 |
++---+---+---+---+---+---+
 ```
 
 Next is `B`, which is 1 in decimal or `000001` in binary. The most significant bit is 0, so we do not need to continue to the next segment.
@@ -88,6 +90,8 @@ Next is `B`, which is 1 in decimal or `000001` in binary. The most significant b
 With this knowledge, `yB` represented in VLQ looks like this:
 
 ```
++-----------------------+-----------------------+
+| C |       19          |          1            |
 +---+---+---+---+---+---+---+---+---+---+---+---+
 | 1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
 +---+---+---+---+---+---+---+---+---+---+---+---+
@@ -96,24 +100,34 @@ With this knowledge, `yB` represented in VLQ looks like this:
 Finally, we need to sum the two numbers. Ignoring the initial continuation bit, we have:
 
 ```
-+---+---+---+---+---+---+---+---+---+---+---+
++-------------------+-----------------------+
+|       19          |             1         | 
++---+---+---+---+---+-------+---+---+---+---+
 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
 +---+---+---+---+---+---+---+---+---+---+---+
 ```
 
 or `10010` and `000001`. It's not as simple as 18 + 1 = 19. Referring back to the standard:
 
-> The VLQ is a Base64 value, where the most significant bit (the 6th bit) is used as the continuation bit, and *the “digits” are encoded into the string least significant first*, and where the least significant bit of the first digit is used as the sign bit. 
+> The VLQ is a Base64 value, where the most significant bit (the 6th bit) is used as the continuation bit, and **the “digits” are encoded into the string least significant first**, and where the least significant bit of the first digit is used as the sign bit. 
 
-This means `000001` is actually more significant thatn `10010` - by five orders of magnitude (in binary), or 31 - `111111` in binary. This means for each continuation bit we encounter, the following value needs to be increased by 31. 
+This means the second value, `000001` is actually more significant than `10010` - by five orders of magnitude (in binary), or 31 - `111111` in binary. This means for each continuation bit we encounter, the subsequent value needs to be increased by 31. 
 
-This means the final calculation is 18 (`10010`) + 1 (`000001`) + 31 (`111111`) = 50.
+This means the final calculation is 18 (`10010`) + ( 1 (`000001`) + 31 (`111111`) ) = 50.
 
 50? Didn't you say `yB` decodes to 25? Yes! We are not done yet. The last part of the standard states:
 
-> The VLQ is a Base64 value, where the most significant bit (the 6th bit) is used as the continuation bit, and the “digits” are encoded into the string least significant first, and where the *least significant bit of the first digit is used as the sign bit*. 
+> The VLQ is a Base64 value, where the most significant bit (the 6th bit) is used as the continuation bit, and the “digits” are encoded into the string least significant first, and where the **least significant bit of the first digit is used as the sign bit**. 
 
-This means the final number is not `50` - which is `110010` in binary, but `11001` with the final bit representing the sign - `0` for positive and `1` for negative. `11001` is 25, and it's +25 because the final bit is 0.
+This means the final number is not `50` - which is `110010` in binary, but `11001`. The final bit represents the sign - `0` for positive and `1` for negative. `11001` is 25, and it's +25 because the final bit is 0.
+
+```
++--------------------------+
+|       Value       | Sign |
++---+---+---+---+---+------+
+| 1 | 1 | 0 | 0 | 1 |   0  |
++---+---+---+---+---+------+
+```
 
 The continuation bit is what makes VLQ and source maps complex to understand and decode at first - but with the information above, we are now in a good position to write a `decode` function!
 
@@ -145,17 +159,15 @@ function decode(str: string) {
 }
 ```
 
-The next thing we need to do is get the Base 64 value for `A`. The easiest way to get access to a Base 64 -> integer map is simply to hard-code it:
+The next thing we need to do is get the [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) value for `A`. The easiest way to get access to a [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) -> integer map is simply to hard-code it:
 
 ```ts
 const charToInteger: Record<string, number> = {}
-const integerToChar: Record<number, string> = {}
 
 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
   .split('')
   .forEach((char, i) => {
     charToInteger[char] = i
-    integerToChar[i] = char
   })
 
 function decode(str: string) {
@@ -165,17 +177,19 @@ function decode(str: string) {
 }
 ```
 
-Now things get a little more interesting. We need to see if there is a continuation bit. We can do this using a bitiwse `&`. Performing `x & y` will return a new binary value where bit is `1` if both corresponding bits in `x` and `y` are `1`. For example:
+Now things get a little more interesting. We need to see if there is a continuation bit. We can do this using a bitwise `&`. Performing `x & y` will return a new binary value where bit is `1` if both corresponding bits in `x` and `y` are `1`. For example:
 
 ```
 +---+---+---+---+---+---+
 | x | 1 | 1 | 0 | 1 | 0 |
 +---+---+---+---+---+---+
 | y | 0 | 1 | 0 | 1 | 0 |
+|=======================|
+| = | 0 | 1 | 0 | 1 | 0 |
 +---+---+---+---+---+---+
 ```
 
-This would return `01010`. A neat trick is just to do `& 32` to see if we have a continuation bit. Why does this work? 32 is `100000`. It will return 0 for any value where the sixth bit is not 1. In this example, `000000` & `100000` returns `000000` - 0 in decimal - which of course evaluates to false in JavaScript.
+This would return `01010`. A neat trick is just to do `& 32` to see if we have a continuation bit. Why does this work? 32 is `100000`. It will return 0 for any value where the sixth bit is not 1. In this example, `A` is `000000` & `100000` returns `000000` - 0 in decimal - which of course evaluates to false in JavaScript.
 
 ```ts
 function decode(str: string) {
@@ -186,7 +200,7 @@ function decode(str: string) {
 }
 ```
 
-If there is not continuation bit, we can just check the least significant bit to see if it positive or negative, then return the fina value.
+If there is not continuation bit, we can just check the least significant bit to see if the value is positive or negative, then return the final value.
 
 ```ts
 function decode(str: string) {
@@ -267,7 +281,7 @@ A bunch of things are going on here. Starting with the updated signature:
 function decode(str: string, acc = 0, depth = 0, decoded = []) {
 ```
 
-We need to keep track of current accumluated value (eg, we decode `y`, adding it on to `0`, then we decode `B`, adding it on to the result of `decode(y) + 0` from the previous iteration. 
+We need to keep track of current accumulated value (eg, we decode `y`, adding it on to `0`, then we decode `B`, adding it on to the result of `decode(y) + 0` from the previous iteration. 
 
 We also need a `depth` variable - for each continuation bit we encounter, we need to add 31 on to the decoded value. That's what is happening here:
 
@@ -278,7 +292,7 @@ const shifted = (withoutContBit << 5 * depth)
 const value = acc | shifted
 ```
 
-The `& 31` effectively truncates the continuation bit - for example if we have `40`, which is `101000` in binary, performing `101000 & 11111` yields `01000`. It's just a concise way to truncate the continuation bit.
+The `& 31` effectively truncates the continuation bit - for example if we have 40, which is `101000` in binary, performing `101000 & 11111` yields `01000`. It's just a concise way to truncate the continuation bit.
 
 Finally we have:
 
@@ -287,42 +301,40 @@ const shifted = (withoutContBit << 5 * depth)
 const value = acc | shifted
 ```
 
-This effectively sums `acc` (which is the current sum of all previously decoded values in field) and the current value. To really see this in action, work through an example with a larger number such as `63C` (1405`).
+This effectively sums `acc` (which is the current sum of all previously decoded values in field) and the current value. To really see this in action, work through an example with a larger number such as `63C` (1405).
 
-Using the Base 64 table, `6` is `111010` in binary. It has a continuation bit.
+Using the [Base 64](https://en.wikipedia.org/wiki/Base64#Base64_table) table, `6` is `111010` in binary. It has a continuation bit.
 
-- `acc`: 0
+- `acc`: `0`
 - `withoutContBit`: `11010`
-- `shifted`: `11010 << 5 * 0 //=> `11010`
-- `value`: `0 | 11010 //=> `11010`
+- `shifted`: `11010 << 5 * 0 = 11010`
+- `value`: `0 | 11010 = 11010`
 
 Next is `3` which maps to `110111`. Again, lose the continuation bit. `depth` is now `1`:
 
 - `acc`: `11010`
 - `withoutContBit`: `10111`
-- `shifted`: `10111 << 5 * 1 //=> 1011100000`
-- `value`: `11010 | 1011100000 //=> `1011111010`
+- `shifted`: `10111 << 5 * 1 = 1011100000`
+- `value`: `11010 | 1011100000 = 1011111010`
 
 Next is `C` which maps to `000010`. Last iteration - there is no continuation bit. `depth` is now `2`:
 
 - `acc`: `1011111010`
 - `withoutContBit`: `00010`
-- `shifted`: `00010 << 5 * 2 //=> 100000000000`
-- `value`: `1011111010 | 100000000000 //=> `101011111010`
+- `shifted`: `00010 << 5 * 2 = 100000000000`
+- `value`: `1011111010 | 100000000000 = 101011111010`
 
-Finally, we see if the final bit is 0 for positive or 1 for negative, truncate it and return the value. In this case it's positive. so we return + 10101111101, which gives us 1405. A bit messy, but we did it, and learned a thing or two along the way. 
+Finally, we see if the final bit is 0 for positive or 1 for negative, truncate it and return the value. In this case it's positive. so we return `+10101111101`, which gives us 1405. A bit messy, but we did it, and learned a thing or two along the way. 
 
-The final implementation is as follows (it has a lot of temporary variables for clarity; it could be refactored to be much more minimal):
+The final implementation is show below. It has a lot of temporary variables for clarity. It could be refactored to be much more concise.
 
 ```ts
 const charToInteger: Record<string, number> = {}
-const integerToChar: Record<number, string> = {}
 
 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
   .split('')
   .forEach((char, i) => {
     charToInteger[char] = i
-    integerToChar[i] = char
   })
 
 
