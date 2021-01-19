@@ -349,3 +349,5 @@ function decode(str: string, acc = 0, depth = 0, decoded = []) {
   return decode(rest, 0, 0, decoded.concat(finalValue))
 }
 ```
+
+Armed with our `decode` function, the next article will look at constructing a data structure to relate the compiled JavaScript and the original TypeScript, which will power the final part of the project, a source map visualization.
